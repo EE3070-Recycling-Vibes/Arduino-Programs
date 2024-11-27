@@ -7,5 +7,6 @@
 void initializeSensors();
 float readWeight();
 float measureHeight();
+bool isObjectDetected(); // Added function declaration
 
 #endif // SENSOR_H

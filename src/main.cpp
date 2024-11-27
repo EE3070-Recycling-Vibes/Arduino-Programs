@@ -8,12 +8,12 @@ void setup() {
     Serial.begin(115200);
 
     // Initialize serial ports
-    WiFiSerial.begin(ESP_BAUDRATE);
-    ESP32Serial.begin(9600);
-    QRCodeSerial.begin(9600);
+    WiFiSerial.begin(ESP_BAUDRATE);   // Serial1 for WiFi
 
+    // Initialize WiFi
     WiFi.init(&WiFiSerial);
 
+    // Wait for connection
     if (WiFi.status() != WL_CONNECTED) {
         Serial.print("Attempting to connect to SSID: ");
         Serial.println(ssid);
@@ -28,6 +28,10 @@ void setup() {
 
     ThingSpeak.begin(client);
 
+    ESP32Serial.begin(ESP_BAUDRATE);          // Serial2 for ESP32
+    QRCodeSerial.begin(ESP_BAUDRATE);         // Serial3 for QR Code Scanner
+
+    // Initialize FastLED
     FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS).setCorrection(TypicalLEDStrip);
     FastLED.setBrightness(BRIGHTNESS);
 
@@ -36,7 +40,12 @@ void setup() {
 
     // Initialize sensors and servo
     initializeSensors();
-    servo1.attach(servoPin);
+    servo1.attach(servo1Pin);
+    servo1.write(10); // Close the lid
+    servo2.attach(servo2Pin);
+    servo2.write(10); // Close the lid
+    servo3.attach(servo3Pin);
+    servo3.write(10); // Close the lid
 
     // Output the scale data after setup
     Serial.println("After setting up the scale:");
@@ -51,6 +60,7 @@ void setup() {
 }
 
 void loop() {
+    // Check WiFi connection
     if (WiFi.status() != WL_CONNECTED) {
         Serial.println("WiFi not connected. Reconnecting...");
         while (WiFi.status() != WL_CONNECTED) {
@@ -61,33 +71,37 @@ void loop() {
         ThingSpeak.begin(client);
     }
 
-    // Read weight
-    float weight = readWeight();
-    Serial.print("Weight: ");
-    Serial.println(weight);
+    // 1. Height is checked for every loop
+    height = measureHeight();
+    Serial.print("Height: ");
+    Serial.println(height);
 
-    // Upload weight data to ThingSpeak
-    int roundedWeight = int(weight + 0.5);
-    int writeWeight = ThingSpeak.writeField(CHANNEL_ID, 4, roundedWeight, WRITE_API_KEY);
-    if (writeWeight == 200) {
-        Serial.print(" | Weight data uploaded to ThingSpeak successfully: ");
-        Serial.println(roundedWeight);
-    } else {
-        Serial.println(" | Failed to upload weight data to ThingSpeak.");
+    // 2. Weight is checked for every loop, show weight only when there's something on the scale
+    float weight = readWeight();
+    if (weight > 0) {
+        Serial.print("Weight: ");
+        Serial.println(weight);
     }
 
-    // Read height
-    distance = measureHeight();
-    Serial.print("Distance: ");
-    Serial.println(distance);
+    // 5. Sync to cloud for every loop
+    // Upload height and weight data to ThingSpeak
+    int writeHeight = ThingSpeak.writeField(CHANNEL_ID, 1, round(height), WRITE_API_KEY);
+    int roundedWeight = int(weight + 0.5);
+    int writeWeight = ThingSpeak.writeField(CHANNEL_ID, 4, roundedWeight, WRITE_API_KEY);
 
-    // Upload distance data to ThingSpeak
-    int writeDistance = ThingSpeak.writeField(CHANNEL_ID, 1, round(distance), WRITE_API_KEY);
-    if (writeDistance == 200) {
-        Serial.print(" | Distance data uploaded to ThingSpeak successfully: ");
-        Serial.println(distance);
-    } else {
-        Serial.println(" | Failed to upload Distance data to ThingSpeak.");
+    while (writeHeight != 200) {
+        writeHeight = ThingSpeak.writeField(CHANNEL_ID, 1, round(height), WRITE_API_KEY);
+    }
+    while (writeWeight != 200) {
+        writeWeight = ThingSpeak.writeField(CHANNEL_ID, 4, roundedWeight, WRITE_API_KEY);
+        roundedWeight = int(weight + 0.5);
+    }
+
+    if (writeHeight == 200 && writeWeight == 200) {
+        Serial.print(" | Height data uploaded to ThingSpeak successfully: ");
+        Serial.println(height);
+        Serial.print(" | Weight data uploaded to ThingSpeak successfully: ");
+        Serial.println(roundedWeight);
     }
 
     // Update LEDs
@@ -98,15 +112,33 @@ void loop() {
     FastLED.delay(1000 / UPDATES_PER_SECOND);
     FastLED.clear();
 
-    // Object detection
-    objDetection();
+    // 3. QR code is scanned when there's something on the scale
+    if (weight > 0) {
+        delay(3000);
+        Serial.println("Scanning QR code...");
+        String qrCode = getQRCode();
+        delay(2000);
+        if (qrCode != "") {
+            Serial.print("QR Code: ");
+            Serial.println(qrCode);
 
-    // QR Code scanning
-    String qrCode = getQRCode();
-    if (qrCode != "") {
-        Serial.print("QR Code: ");
-        Serial.println(qrCode);
-        // Process QR Code as needed
+            // Process QR Code as needed
+            String usrID = qrCode;
+            int writeUserID = ThingSpeak.writeField(2709428, 3, qrCode, "Y9PPUAJ1X51FB4HQ");
+            while (writeUserID != 200) {
+                writeUserID = ThingSpeak.writeField(2709428, 3, qrCode, "Y9PPUAJ1X51FB4HQ");
+            }
+            if (writeUserID == 200) {
+                Serial.print(" | UserID data uploaded to ThingSpeak successfully: ");
+                Serial.println(qrCode);
+            } 
+        }
+    }
+
+    // 4. Object detection is done when the detection ultrasonic sensor detected something <10cm and there's something on the scale
+    if (weight > 0 || isObjectDetected()) {
+        Serial.println("Starting object detection...");
+        objDetection();
     }
 
     delay(500); // Adjust delay as needed

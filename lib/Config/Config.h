@@ -9,7 +9,7 @@
 #include <Servo.h>
 
 // WiFi Configuration
-#define ESP_BAUDRATE    9600
+#define ESP_BAUDRATE    115200
 extern char ssid[];
 extern char pass[];
 extern int status;
@@ -45,8 +45,12 @@ extern HX711 scale;
 #define OBJ_DETECT_ECHO_PIN    8
 
 // Motor Pin
-#define servoPin A0
+#define servo1Pin A0
+#define servo2Pin A1
+#define servo3Pin A2
 extern Servo servo1;
+extern Servo servo2;
+extern Servo servo3;
 
 // Communication with ESP32 and QR Code Scanner
 #define ESP32Serial Serial2
@@ -55,6 +59,7 @@ extern Servo servo1;
 // Global Variables
 extern float duration;
 extern float distance;
+extern float height;
 extern int LED;
 
 #endif // CONFIG_H
